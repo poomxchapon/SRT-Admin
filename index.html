@@ -81,12 +81,36 @@ import {
 // ═══════════════════════════════════════════
 // 1. CONFIGURATION
 // ═══════════════════════════════════════════
-const APP_VERSION = "1.0.0";
+const APP_VERSION = "1.1.0";
 
 const SUPABASE_URL = "https://ecdgafksqlbuscetftok.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVjZGdhZmtzcWxidXNjZXRmdG9rIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY5NjM3MjMsImV4cCI6MjA4MjUzOTcyM30.fvM68OgwvmLupKXC0NNjsf1Lggv8WlBufC0JVr6q7V4";
 
 const FALLBACK_USERS = [{ id:1, email:'admin', password:'1234', role:'Super Admin', status:'Active' }];
+
+// ═══════════════════════════════════════════
+// 2. TARGETING CONSTANTS
+// ═══════════════════════════════════════════
+const STATIONS = [
+  { id: 'bangkok-central', name: { th: 'สถานีกลางกรุงเทพอภิวัฒน์', en: 'Krung Thep Aphiwat Central' } },
+  { id: 'chiang-mai', name: { th: 'สถานีเชียงใหม่', en: 'Chiang Mai Station' } },
+  { id: 'hat-yai', name: { th: 'สถานีหาดใหญ่', en: 'Hat Yai Junction' } },
+  { id: 'nong-khai', name: { th: 'สถานีหนองคาย', en: 'Nong Khai Station' } },
+  { id: 'surat-thani', name: { th: 'สถานีสุราษฎร์ธานี', en: 'Surat Thani Station' } },
+  { id: 'nakhon-ratchasima', name: { th: 'สถานีนครราชสีมา', en: 'Nakhon Ratchasima Station' } },
+];
+
+const ZONES = [
+  { id: 'platform', name: { th: 'ชานชาลา', en: 'Platform Area' }, kiosks: [1,2,5,12] },
+  { id: 'main-hall', name: { th: 'โถงกลาง', en: 'Main Hall' }, kiosks: [3] },
+  { id: 'ticket', name: { th: 'จุดจำหน่ายตั๋ว', en: 'Ticket Area' }, kiosks: [4] },
+  { id: 'food-court', name: { th: 'ศูนย์อาหาร', en: 'Food Court' }, kiosks: [6] },
+  { id: 'entrance', name: { th: 'ทางเข้า', en: 'Entrance' }, kiosks: [9,10] },
+  { id: 'exit', name: { th: 'ทางออก', en: 'Exit' }, kiosks: [7,8] },
+  { id: 'other', name: { th: 'อื่นๆ', en: 'Other' }, kiosks: [11,13,14] },
+];
+
+const DEFAULT_TARGETING = { mode: 'all', stations: [], kiosks: [], zones: [] };
 
 // ═══════════════════════════════════════════
 // 3. API HELPER
@@ -433,6 +457,11 @@ const AdminView = ({ onLogout }) => {
       mon: 'จ.', tue: 'อ.', wed: 'พ.', thu: 'พฤ.', fri: 'ศ.', sat: 'ส.', sun: 'อา.',
       // Kiosk location names
       mainHall: 'โถงกลาง', entranceA: 'ทางเข้า A', platform1: 'ชานชาลา 1', ticketArea: 'จุดจำหน่ายตั๋ว', foodCourt: 'ศูนย์อาหาร',
+      // Targeting
+      targeting: 'เป้าหมาย', targetAll: 'ทุกสถานี', targetSelected: 'เลือกเป้าหมาย',
+      targetStations: 'สถานี', targetZones: 'โซน', targetKiosks: 'Kiosk',
+      selectStations: 'เลือกสถานี', selectZones: 'เลือกโซน', selectKiosks: 'เลือก Kiosk',
+      allStations: 'ทุกที่', stationCount: 'สถานี', kioskCount: 'Kiosk', zoneCount: 'โซน',
     },
     en: {
       sysTitle: 'Station Management System',
@@ -490,6 +519,11 @@ const AdminView = ({ onLogout }) => {
       nodeFoodCourt: 'Food Court', nodePlat13: 'Platform 1-3', nodePlat46: 'Platform 4-6', nodeExitC: 'Exit C',
       mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', sun: 'Sun',
       mainHall: 'Main Hall', entranceA: 'Entrance A', platform1: 'Platform 1', ticketArea: 'Ticket Counter', foodCourt: 'Food Court',
+      // Targeting
+      targeting: 'Target', targetAll: 'All Stations', targetSelected: 'Select Target',
+      targetStations: 'Stations', targetZones: 'Zones', targetKiosks: 'Kiosks',
+      selectStations: 'Select Stations', selectZones: 'Select Zones', selectKiosks: 'Select Kiosks',
+      allStations: 'All', stationCount: 'Stations', kioskCount: 'Kiosks', zoneCount: 'Zones',
     }
   };
   const al = AL[adminLang];
@@ -498,13 +532,13 @@ const AdminView = ({ onLogout }) => {
   const [popups, setPopups] = useState([]);
   const [showPopupForm, setShowPopupForm] = useState(false);
   const [editPopup, setEditPopup] = useState(null);
-  const [popupForm, setPopupForm] = useState({ title: '', trigger: 'manual', texts: { th: '', en: '', cn: '', kr: '' }, langs: { th: true, en: false, cn: false, kr: false } });
+  const [popupForm, setPopupForm] = useState({ title: '', trigger: 'manual', texts: { th: '', en: '', cn: '', kr: '' }, langs: { th: true, en: false, cn: false, kr: false }, targeting: { ...DEFAULT_TARGETING } });
   const [translating, setTranslating] = useState(false);
 
   // ═══ Ads state (loaded from Supabase) ═══
   const [ads, setAds] = useState([]);
   const [showAdForm, setShowAdForm] = useState(false);
-  const [adForm, setAdForm] = useState({ name: '', type: 'banner', status: 'scheduled', start: '', end: '', imageUrl: '' });
+  const [adForm, setAdForm] = useState({ name: '', type: 'banner', status: 'scheduled', start: '', end: '', imageUrl: '', targeting: { ...DEFAULT_TARGETING } });
 
   // ═══ Load ads & popups from Supabase ═══
   useEffect(() => {
@@ -667,6 +701,109 @@ const AdminView = ({ onLogout }) => {
     </div>
   );
 
+  // ═══ Targeting helpers ═══
+  const targetingBadge = (tgt) => {
+    const tg = tgt || DEFAULT_TARGETING;
+    if (tg.mode === 'all' || !tg.mode) return { label: al.allStations, cls: 'bg-emerald-100 text-emerald-700' };
+    const parts = [];
+    if (tg.stations?.length) parts.push(`${tg.stations.length} ${al.stationCount}`);
+    if (tg.zones?.length) parts.push(`${tg.zones.length} ${al.zoneCount}`);
+    if (tg.kiosks?.length) parts.push(`${tg.kiosks.length} ${al.kioskCount}`);
+    return { label: parts.join(', ') || al.allStations, cls: parts.length ? 'bg-orange-100 text-orange-700' : 'bg-emerald-100 text-emerald-700' };
+  };
+
+  const TargetingSection = ({ targeting, setTargeting, accentColor = 'cyan' }) => {
+    const isTargeted = targeting.mode === 'targeted';
+    const toggleMode = () => setTargeting({ ...targeting, mode: isTargeted ? 'all' : 'targeted', stations: [], kiosks: [], zones: [] });
+    const toggleItem = (field, val) => {
+      const arr = targeting[field] || [];
+      setTargeting({ ...targeting, [field]: arr.includes(val) ? arr.filter(v => v !== val) : [...arr, val] });
+    };
+    const toggleZone = (zoneId) => {
+      const arr = targeting.zones || [];
+      if (arr.includes(zoneId)) {
+        setTargeting({ ...targeting, zones: arr.filter(v => v !== zoneId) });
+      } else {
+        setTargeting({ ...targeting, zones: [...arr, zoneId] });
+      }
+    };
+    return (
+      <div>
+        <label className={`text-xs font-bold ${t.textSec} uppercase mb-2 block`}>{al.targeting}</label>
+        <div className="flex gap-3 mb-3">
+          <button type="button" onClick={toggleMode}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all cursor-pointer border ${
+              !isTargeted ? `border-${accentColor}-400 bg-${accentColor}-50 text-${accentColor}-700 ${dk ? `border-${accentColor}-600 bg-${accentColor}-950/30 text-${accentColor}-400` : ''}` : `${t.border} ${t.textSec} ${t.hover}`
+            }`}>
+            <Globe size={14}/> {al.targetAll}
+          </button>
+          <button type="button" onClick={toggleMode}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all cursor-pointer border ${
+              isTargeted ? `border-${accentColor}-400 bg-${accentColor}-50 text-${accentColor}-700 ${dk ? `border-${accentColor}-600 bg-${accentColor}-950/30 text-${accentColor}-400` : ''}` : `${t.border} ${t.textSec} ${t.hover}`
+            }`}>
+            <MapPin size={14}/> {al.targetSelected}
+          </button>
+        </div>
+        {isTargeted && (
+          <div className={`space-y-4 p-4 rounded-xl border ${t.border} ${t.statBg}`}>
+            {/* Stations */}
+            <div>
+              <label className={`text-[10px] font-bold ${t.textMuted} uppercase mb-2 block`}>{al.selectStations}</label>
+              <div className="flex flex-wrap gap-2">
+                {STATIONS.map(s => (
+                  <button key={s.id} type="button" onClick={() => toggleItem('stations', s.id)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer border ${
+                      targeting.stations?.includes(s.id) ? (dk ? 'border-cyan-600 bg-cyan-950/40 text-cyan-400' : 'border-cyan-400 bg-cyan-50 text-cyan-700') : `${t.border} ${t.textSec} ${t.hover}`
+                    }`}>
+                    {s.name[adminLang]}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {/* Zones */}
+            <div>
+              <label className={`text-[10px] font-bold ${t.textMuted} uppercase mb-2 block`}>{al.selectZones}</label>
+              <div className="flex flex-wrap gap-2">
+                {ZONES.map(z => (
+                  <button key={z.id} type="button" onClick={() => toggleZone(z.id)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer border ${
+                      targeting.zones?.includes(z.id) ? (dk ? 'border-purple-600 bg-purple-950/40 text-purple-400' : 'border-purple-400 bg-purple-50 text-purple-700') : `${t.border} ${t.textSec} ${t.hover}`
+                    }`}>
+                    {z.name[adminLang]} <span className={`${t.textMuted} font-normal`}>({z.kiosks.length})</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            {/* Kiosks */}
+            <div>
+              <label className={`text-[10px] font-bold ${t.textMuted} uppercase mb-2 block`}>{al.selectKiosks}</label>
+              <div className="grid grid-cols-7 gap-1.5">
+                {Array.from({ length: 14 }, (_, i) => i + 1).map(kid => {
+                  const inZone = targeting.zones?.length ? ZONES.some(z => targeting.zones.includes(z.id) && z.kiosks.includes(kid)) : true;
+                  return (
+                    <button key={kid} type="button" onClick={() => toggleItem('kiosks', kid)}
+                      className={`py-2 rounded-lg text-xs font-bold transition-all cursor-pointer border text-center ${
+                        targeting.kiosks?.includes(kid) ? (dk ? 'border-indigo-600 bg-indigo-950/40 text-indigo-400' : 'border-indigo-400 bg-indigo-50 text-indigo-700') :
+                        !inZone ? `${t.border} ${t.textMuted} opacity-40` :
+                        `${t.border} ${t.textSec} ${t.hover}`
+                      }`}>
+                      {String(kid).padStart(2, '0')}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            {/* Summary badge */}
+            {(() => {
+              const b = targetingBadge(targeting);
+              return <div className="pt-2"><span className={`text-xs font-bold px-3 py-1 rounded-full ${b.cls}`}>{b.label}</span></div>;
+            })()}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   // ═══ Chart.js React wrapper ═══
   const ChartCanvas = ({ type = 'bar', data, options, height = 260 }) => {
     const canvasRef = useRef(null);
@@ -695,17 +832,17 @@ const AdminView = ({ onLogout }) => {
   // ═══ Popup form helpers ═══
   const openNewPopup = () => {
     setEditPopup(null);
-    setPopupForm({ title: '', trigger: 'manual', texts: { th: '', en: '', cn: '', kr: '' }, langs: { th: true, en: false, cn: false, kr: false } });
+    setPopupForm({ title: '', trigger: 'manual', texts: { th: '', en: '', cn: '', kr: '' }, langs: { th: true, en: false, cn: false, kr: false }, targeting: { ...DEFAULT_TARGETING } });
     setShowPopupForm(true);
   };
   const openEditPopup = (p) => {
     setEditPopup(p.id);
-    setPopupForm({ title: p.title, trigger: p.trigger, texts: { ...p.texts }, langs: { ...p.langs } });
+    setPopupForm({ title: p.title, trigger: p.trigger, texts: { ...p.texts }, langs: { ...p.langs }, targeting: p.targeting ? { ...DEFAULT_TARGETING, ...p.targeting } : { ...DEFAULT_TARGETING } });
     setShowPopupForm(true);
   };
   const savePopup = async () => {
     if (!popupForm.title.trim() || !popupForm.texts.th.trim()) return;
-    const row = { title: popupForm.title, trigger_type: popupForm.trigger, texts: popupForm.texts, langs: popupForm.langs };
+    const row = { title: popupForm.title, trigger_type: popupForm.trigger, texts: popupForm.texts, langs: popupForm.langs, targeting: popupForm.targeting };
     if (editPopup) {
       await api.patch('popups', editPopup, row);
       setPopups(ps => ps.map(p => p.id === editPopup ? { ...p, ...popupForm } : p));
@@ -733,10 +870,10 @@ const AdminView = ({ onLogout }) => {
   };
 
   // ═══ Ad form helpers ═══
-  const openNewAd = () => { setAdForm({ name: '', type: 'banner', status: 'scheduled', start: '', end: '', imageUrl: '' }); setShowAdForm(true); };
+  const openNewAd = () => { setAdForm({ name: '', type: 'banner', status: 'scheduled', start: '', end: '', imageUrl: '', targeting: { ...DEFAULT_TARGETING } }); setShowAdForm(true); };
   const saveAd = async () => {
     if (!adForm.name.trim()) return;
-    const row = { name: adForm.name, type: adForm.type, status: adForm.status, start_date: adForm.start || null, end_date: adForm.end || null, image_url: adForm.imageUrl || null };
+    const row = { name: adForm.name, type: adForm.type, status: adForm.status, start_date: adForm.start || null, end_date: adForm.end || null, image_url: adForm.imageUrl || null, targeting: adForm.targeting };
     const res = await api.post('advertisements', row);
     if (res?.[0]) setAds(a => [...a, { ...res[0], start: res[0].start_date, end: res[0].end_date, imageUrl: res[0].image_url }]);
     setShowAdForm(false);
@@ -846,7 +983,7 @@ const AdminView = ({ onLogout }) => {
                   </div>
                   <table className="w-full text-sm">
                     <thead className={`${t.cardHead} ${t.textSec} text-xs uppercase`}>
-                      <tr><th className="px-5 py-3 text-left">{al.thCampaign}</th><th className="px-5 py-3 text-center">{al.thType}</th><th className="px-5 py-3 text-center">{al.thStatus}</th><th className="px-5 py-3 text-center">{al.thPeriod}</th><th className="px-5 py-3 text-right">{al.thImpressions}</th><th className="px-5 py-3 text-right">{al.thCTR}</th><th className="px-5 py-3 text-center">{al.thActions}</th></tr>
+                      <tr><th className="px-5 py-3 text-left">{al.thCampaign}</th><th className="px-5 py-3 text-center">{al.thType}</th><th className="px-5 py-3 text-center">{al.thStatus}</th><th className="px-5 py-3 text-center">{al.targeting}</th><th className="px-5 py-3 text-center">{al.thPeriod}</th><th className="px-5 py-3 text-right">{al.thImpressions}</th><th className="px-5 py-3 text-right">{al.thCTR}</th><th className="px-5 py-3 text-center">{al.thActions}</th></tr>
                     </thead>
                     <tbody className={`${t.divider} divide-y`}>
                       {ads.map(a => (
@@ -858,6 +995,7 @@ const AdminView = ({ onLogout }) => {
                               <span className={`w-1.5 h-1.5 rounded-full ${a.status === 'active' ? 'bg-emerald-500' : a.status === 'paused' ? 'bg-yellow-500' : 'bg-blue-500'}`}/>{a.status}
                             </span>
                           </td>
+                          <td className="px-5 py-3.5 text-center">{(() => { const b = targetingBadge(a.targeting); return <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${b.cls}`}>{b.label}</span>; })()}</td>
                           <td className={`px-5 py-3.5 text-center text-xs ${t.textSec} font-inter`}>{a.start ? `${a.start} ~ ${a.end}` : '-'}</td>
                           <td className={`px-5 py-3.5 text-right font-inter ${dk ? 'text-gray-300' : 'text-gray-600'}`}>{a.impressions}</td>
                           <td className={`px-5 py-3.5 text-right font-inter font-bold ${t.text}`}>{a.ctr}</td>
@@ -880,7 +1018,7 @@ const AdminView = ({ onLogout }) => {
                 {/* New Ad Modal */}
                 {showAdForm && (
                   <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center" onClick={() => setShowAdForm(false)}>
-                    <div className={`${t.modal} rounded-2xl shadow-2xl w-full max-w-lg p-6 animate-fade-in`} onClick={e => e.stopPropagation()}>
+                    <div className={`${t.modal} rounded-2xl shadow-2xl w-full max-w-xl p-6 animate-fade-in max-h-[90vh] overflow-y-auto`} onClick={e => e.stopPropagation()}>
                       <div className="flex justify-between items-center mb-5">
                         <h3 className={`text-lg font-bold ${t.text} flex items-center gap-2`}><Image size={20} className="text-blue-500"/> {al.newAdTitle}</h3>
                         <button onClick={() => setShowAdForm(false)} className={`p-1 rounded-full ${t.hover} cursor-pointer`}><X size={18} className="text-gray-400"/></button>
@@ -929,6 +1067,7 @@ const AdminView = ({ onLogout }) => {
                           <input value={adForm.imageUrl} onChange={e => setAdForm(f => ({...f, imageUrl: e.target.value}))}
                             className={`w-full border ${t.input} rounded-xl py-2.5 px-4 text-sm mt-1 focus:outline-none focus:border-cyan-400 transition-colors`} placeholder="https://example.com/ad-banner.jpg"/>
                         </div>
+                        <TargetingSection targeting={adForm.targeting} setTargeting={(tgt) => setAdForm(f => ({...f, targeting: tgt}))} accentColor="cyan"/>
                       </div>
                       <div className="flex justify-end gap-3 mt-6">
                         <button onClick={() => setShowAdForm(false)} className={`px-4 py-2 rounded-xl text-sm font-medium ${t.textSec} ${t.hover} transition-colors cursor-pointer`}>{al.cancel}</button>
@@ -953,9 +1092,10 @@ const AdminView = ({ onLogout }) => {
                       <div key={p.id} className={`p-4 rounded-xl border transition-colors ${p.active ? `${t.borderLight} ${dk ? 'hover:border-gray-600' : 'hover:border-gray-200'}` : `${t.borderLight} ${t.statBg} opacity-60`}`}>
                         <div className="flex items-start justify-between">
                           <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-1">
+                            <div className="flex items-center gap-2 mb-1 flex-wrap">
                               <h4 className={`font-bold ${t.text} text-sm`}>{p.title}</h4>
                               <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${p.trigger === 'broadcast' ? 'bg-red-100 text-red-700' : t.badge}`}>{TRIGGER_LABELS[p.trigger] || p.trigger}</span>
+                              {(() => { const b = targetingBadge(p.targeting); return <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${b.cls}`}>{b.label}</span>; })()}
                             </div>
                             <p className={`text-xs ${t.textSec} mb-2 truncate`}>{p.texts.th}</p>
                             <div className="flex gap-1">
@@ -1058,6 +1198,7 @@ const AdminView = ({ onLogout }) => {
                               className={`w-full border ${t.input} rounded-xl py-2.5 px-4 text-sm focus:outline-none focus:border-orange-400 resize-none h-16 transition-colors`} placeholder={al.krTranslation}/>
                           </div>
                         )}
+                        <TargetingSection targeting={popupForm.targeting} setTargeting={(tgt) => setPopupForm(f => ({...f, targeting: tgt}))} accentColor="orange"/>
                       </div>
                       <div className="flex justify-end gap-3 mt-6">
                         <button onClick={() => setShowPopupForm(false)} className={`px-4 py-2 rounded-xl text-sm font-medium ${t.textSec} ${t.hover} transition-colors cursor-pointer`}>{al.cancel}</button>
