@@ -62,7 +62,6 @@
     </script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </head>
 <body class="bg-black text-white h-screen w-screen overflow-hidden">
 <div id="root" class="w-full h-full"></div>
@@ -81,12 +80,15 @@ import {
 // ═══════════════════════════════════════════
 // 1. CONFIGURATION
 // ═══════════════════════════════════════════
-const APP_VERSION = "1.1.0";
+const APP_VERSION = "1.2.0";
 
 const SUPABASE_URL = "https://ecdgafksqlbuscetftok.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVjZGdhZmtzcWxidXNjZXRmdG9rIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY5NjM3MjMsImV4cCI6MjA4MjUzOTcyM30.fvM68OgwvmLupKXC0NNjsf1Lggv8WlBufC0JVr6q7V4";
 
-const FALLBACK_USERS = [{ id:1, email:'admin', password:'1234', role:'Super Admin', status:'Active' }];
+const FALLBACK_USERS = [
+  { id:1, email:'admin', password:'1234', role:'Super Admin', status:'Active' },
+  { id:2, email:'bangkok', password:'1234', role:'Admin', station:'bangkok-central', status:'Active' },
+];
 
 // ═══════════════════════════════════════════
 // 2. TARGETING CONSTANTS
@@ -123,275 +125,20 @@ const api = {
 };
 
 // ═══════════════════════════════════════════
-// 5.5. THREE.JS FLOW MAP
-// ═══════════════════════════════════════════
-const FlowMap3D = ({ nodes, flows }) => {
-  const containerRef = useRef(null);
-  const stateRef = useRef({});
-
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el || !window.THREE) return;
-    const T = window.THREE;
-
-    const W = el.clientWidth, H = el.clientHeight;
-
-    // Scene
-    const scene = new T.Scene();
-    scene.background = new T.Color(0x0f172a);
-    scene.fog = new T.FogExp2(0x0f172a, 0.015);
-
-    // Camera — slight tilt perspective
-    const camera = new T.PerspectiveCamera(50, W / H, 0.1, 1000);
-    camera.position.set(0, 55, 40);
-    camera.lookAt(0, 0, 0);
-
-    // Renderer
-    const renderer = new T.WebGLRenderer({ antialias: true, alpha: false });
-    renderer.setSize(W, H);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    el.appendChild(renderer.domElement);
-
-    // Ground plane (grid)
-    const gridHelper = new T.GridHelper(80, 20, 0x1e293b, 0x1e293b);
-    scene.add(gridHelper);
-
-    // Ambient ground plane
-    const groundGeo = new T.PlaneGeometry(100, 100);
-    const groundMat = new T.MeshBasicMaterial({ color: 0x0f172a, transparent: true, opacity: 0.95 });
-    const ground = new T.Mesh(groundGeo, groundMat);
-    ground.rotation.x = -Math.PI / 2;
-    ground.position.y = -0.1;
-    scene.add(ground);
-
-    // Lights
-    scene.add(new T.AmbientLight(0x334155, 0.6));
-    const dirLight = new T.DirectionalLight(0x06b6d4, 0.4);
-    dirLight.position.set(10, 30, 20);
-    scene.add(dirLight);
-    const pLight = new T.PointLight(0x818cf8, 0.5, 80);
-    pLight.position.set(0, 15, 0);
-    scene.add(pLight);
-
-    // Map node positions (0-100%) → 3D (-40 to 40)
-    const toWorld = (x, y) => new T.Vector3((x / 100 - 0.5) * 80, 0, (y / 100 - 0.5) * 60);
-    const nodeMap = {};
-
-    // Create nodes
-    nodes.forEach(n => {
-      const pos = toWorld(n.x, n.y);
-      nodeMap[n.id] = pos;
-
-      // Glow ring (on ground)
-      const ringGeo = new T.RingGeometry(1.5, 2.2, 32);
-      const ringMat = new T.MeshBasicMaterial({ color: n.type === 'indoor' ? 0x818cf8 : 0x06b6d4, side: T.DoubleSide, transparent: true, opacity: 0.4 });
-      const ring = new T.Mesh(ringGeo, ringMat);
-      ring.rotation.x = -Math.PI / 2;
-      ring.position.copy(pos);
-      ring.position.y = 0.05;
-      scene.add(ring);
-
-      // Sphere node
-      const sphereGeo = new T.SphereGeometry(1.2, 24, 24);
-      const sphereMat = new T.MeshPhongMaterial({
-        color: n.type === 'indoor' ? 0x6366f1 : 0x0891b2,
-        emissive: n.type === 'indoor' ? 0x4f46e5 : 0x0e7490,
-        emissiveIntensity: 0.6,
-        shininess: 100,
-      });
-      const sphere = new T.Mesh(sphereGeo, sphereMat);
-      sphere.position.copy(pos);
-      sphere.position.y = 1.5;
-      sphere.userData = { nodeId: n.id, name: n.name, detected: n.detected, baseY: 1.5 };
-      scene.add(sphere);
-
-      // Vertical pillar (faint line from ground to sphere)
-      const pillarGeo = new T.CylinderGeometry(0.08, 0.08, 1.5, 6);
-      const pillarMat = new T.MeshBasicMaterial({ color: n.type === 'indoor' ? 0x6366f1 : 0x0891b2, transparent: true, opacity: 0.3 });
-      const pillar = new T.Mesh(pillarGeo, pillarMat);
-      pillar.position.copy(pos);
-      pillar.position.y = 0.75;
-      scene.add(pillar);
-    });
-
-    // Create flow lines + particles
-    const particles = [];
-    flows.forEach(f => {
-      const from = nodeMap[f.from], to = nodeMap[f.to];
-      if (!from || !to) return;
-
-      // Curved line
-      const mid = new T.Vector3().addVectors(from, to).multiplyScalar(0.5);
-      mid.y = 2.5 + (f.count / 1650) * 3;
-      const curve = new T.QuadraticBezierCurve3(
-        new T.Vector3(from.x, 1.5, from.z),
-        mid,
-        new T.Vector3(to.x, 1.5, to.z)
-      );
-      const tubeGeo = new T.TubeGeometry(curve, 32, 0.06 + f.count / 8000, 6, false);
-      const tubeMat = new T.MeshBasicMaterial({ color: new T.Color(f.color), transparent: true, opacity: 0.35 });
-      const tube = new T.Mesh(tubeGeo, tubeMat);
-      scene.add(tube);
-
-      // Particles along the curve
-      const numP = Math.max(3, Math.floor(f.count / 300));
-      for (let i = 0; i < numP; i++) {
-        const pGeo = new T.SphereGeometry(0.18, 8, 8);
-        const pMat = new T.MeshBasicMaterial({ color: new T.Color(f.color) });
-        const pMesh = new T.Mesh(pGeo, pMat);
-        const t0 = i / numP;
-        const speed = 0.08 + Math.random() * 0.06;
-        pMesh.position.copy(curve.getPoint(t0));
-        scene.add(pMesh);
-        particles.push({ mesh: pMesh, curve, t: t0, speed });
-      }
-    });
-
-    // Mouse interaction
-    const mouse = new T.Vector2(-999, -999);
-    const raycaster = new T.Raycaster();
-    let hoveredNode = null;
-
-    const onMove = (e) => {
-      const rect = el.getBoundingClientRect();
-      mouse.x = ((e.clientX - rect.left) / W) * 2 - 1;
-      mouse.y = -((e.clientY - rect.top) / H) * 2 + 1;
-    };
-    el.addEventListener('mousemove', onMove);
-
-    // Auto-rotate angle
-    let angle = 0;
-    let autoRotate = true;
-    const onMouseDown = () => { autoRotate = false; };
-    const onMouseUp = () => { setTimeout(() => { autoRotate = true; }, 3000); };
-    el.addEventListener('mousedown', onMouseDown);
-    el.addEventListener('mouseup', onMouseUp);
-
-    // Simple drag rotation
-    let isDragging = false, prevX = 0, prevY = 0, rotY = 0, rotX = 0.7;
-    const onDragStart = (e) => { isDragging = true; prevX = e.clientX; prevY = e.clientY; };
-    const onDrag = (e) => {
-      if (!isDragging) return;
-      rotY += (e.clientX - prevX) * 0.005;
-      rotX = Math.max(0.3, Math.min(1.2, rotX - (e.clientY - prevY) * 0.003));
-      prevX = e.clientX; prevY = e.clientY;
-    };
-    const onDragEnd = () => { isDragging = false; };
-    el.addEventListener('mousedown', onDragStart);
-    el.addEventListener('mousemove', onDrag);
-    el.addEventListener('mouseup', onDragEnd);
-    el.addEventListener('mouseleave', onDragEnd);
-
-    // Tooltip div
-    const tooltip = document.createElement('div');
-    tooltip.style.cssText = 'position:absolute;pointer-events:none;background:#1e293b;color:white;padding:6px 12px;border-radius:8px;font-size:11px;font-weight:600;opacity:0;transition:opacity 0.2s;z-index:10;white-space:nowrap;border:1px solid #334155;font-family:Inter,sans-serif;';
-    el.appendChild(tooltip);
-
-    // Animation
-    const clock = new T.Clock();
-    let animId;
-    const animate = () => {
-      animId = requestAnimationFrame(animate);
-      const dt = clock.getDelta();
-
-      // Camera orbit
-      if (autoRotate) angle += dt * 0.15;
-      const camAngle = angle + rotY;
-      const radius = 55;
-      camera.position.x = Math.sin(camAngle) * radius * 0.5;
-      camera.position.z = Math.cos(camAngle) * radius * rotX;
-      camera.position.y = 30 + radius * (1 - rotX) * 0.3;
-      camera.lookAt(0, 0, 0);
-
-      // Animate particles
-      particles.forEach(p => {
-        p.t = (p.t + p.speed * dt) % 1;
-        const pt = p.curve.getPoint(p.t);
-        p.mesh.position.copy(pt);
-        p.mesh.scale.setScalar(0.8 + Math.sin(p.t * Math.PI) * 0.5);
-      });
-
-      // Animate node bobbing
-      scene.children.forEach(child => {
-        if (child.userData?.nodeId) {
-          child.position.y = child.userData.baseY + Math.sin(clock.elapsedTime * 1.2 + child.position.x) * 0.15;
-        }
-      });
-
-      // Raycaster hover
-      raycaster.setFromCamera(mouse, camera);
-      const intersects = raycaster.intersectObjects(scene.children.filter(c => c.userData?.nodeId));
-      if (intersects.length > 0) {
-        const obj = intersects[0].object;
-        if (hoveredNode !== obj) {
-          if (hoveredNode) hoveredNode.scale.setScalar(1);
-          hoveredNode = obj;
-          hoveredNode.scale.setScalar(1.3);
-        }
-        const d = obj.userData;
-        tooltip.textContent = `${d.nodeId}: ${d.name} — ${d.detected.toLocaleString()} devices`;
-        const screenPos = obj.position.clone().project(camera);
-        tooltip.style.left = `${(screenPos.x * 0.5 + 0.5) * W}px`;
-        tooltip.style.top = `${(-screenPos.y * 0.5 + 0.5) * H - 40}px`;
-        tooltip.style.transform = 'translateX(-50%)';
-        tooltip.style.opacity = '1';
-      } else {
-        if (hoveredNode) { hoveredNode.scale.setScalar(1); hoveredNode = null; }
-        tooltip.style.opacity = '0';
-      }
-
-      renderer.render(scene, camera);
-    };
-    animate();
-
-    // Resize
-    const onResize = () => {
-      const w = el.clientWidth, h = el.clientHeight;
-      camera.aspect = w / h;
-      camera.updateProjectionMatrix();
-      renderer.setSize(w, h);
-    };
-    const ro = new ResizeObserver(onResize);
-    ro.observe(el);
-
-    stateRef.current = { animId, renderer, ro, tooltip, el };
-
-    return () => {
-      cancelAnimationFrame(animId);
-      ro.disconnect();
-      el.removeEventListener('mousemove', onMove);
-      el.removeEventListener('mousedown', onDragStart);
-      el.removeEventListener('mousemove', onDrag);
-      el.removeEventListener('mouseup', onDragEnd);
-      el.removeEventListener('mouseleave', onDragEnd);
-      el.removeEventListener('mousedown', onMouseDown);
-      el.removeEventListener('mouseup', onMouseUp);
-      if (tooltip.parentNode) tooltip.parentNode.removeChild(tooltip);
-      renderer.dispose();
-      if (renderer.domElement.parentNode) renderer.domElement.parentNode.removeChild(renderer.domElement);
-    };
-  }, [nodes, flows]);
-
-  return <div ref={containerRef} className="relative w-full rounded-xl overflow-hidden" style={{ height: '420px' }}/>;
-};
-
-// ═══════════════════════════════════════════
 // 6. ADMIN DASHBOARD
 // ═══════════════════════════════════════════
-const AdminView = ({ onLogout }) => {
+// NOTE: FlowMap3D, Heat Map, Walk Path removed in v1.2.0
+const AdminView = ({ onLogout, currentUser }) => {
   const [view, setView] = useState('kiosk');
   const [kioskTab, setKioskTab] = useState('ads');
-  const [heatHour, setHeatHour] = useState(14);
-  const [flowSlot, setFlowSlot] = useState(2);
   const [darkAdmin, setDarkAdmin] = useState(false);
   const [adminLang, setAdminLang] = useState('th');
-
   // ═══ Admin i18n ═══
   const AL = {
     th: {
       // Sidebar
       sysTitle: 'Station Management System',
-      navKiosk: 'จัดการ Kiosk', navHeatmap: 'Heat Map แบบ Live', navWalkpath: 'เส้นทางเดิน',
+      navKiosk: 'จัดการ Kiosk',
       darkMode: 'โหมดมืด', lightMode: 'โหมดสว่าง', logout: 'ออกจากระบบ',
       // Kiosk Management
       kioskMgmt: 'จัดการ Kiosk', kioskMgmtDesc: 'จัดการโฆษณา, ป๊อปอัพ, ดูแลรักษา & วิเคราะห์',
@@ -433,26 +180,8 @@ const AdminView = ({ onLogout }) => {
       langDistribution: 'สัดส่วนภาษาที่ใช้', langDistDesc: 'ภาษาที่ผู้ใช้เลือกใน Kiosk สัปดาห์นี้',
       langTH: 'ไทย', langEN: 'อังกฤษ', langCN: 'จีน', langKR: 'เกาหลี',
       kioskPerformance: 'ประสิทธิภาพ Kiosk', kioskPerfDesc: 'Kiosk ที่มีเซสชันสูงสุด',
-      // Heatmap
-      dailyHeatmap: 'รายงาน Heat Map รายวัน', heatmapDesc: 'DeepTrack — Heatmap ความหนาแน่นรายชั่วโมง (Distinct Device)',
-      activeSensors: 'เซ็นเซอร์ทำงาน', devicesDetected: 'อุปกรณ์ที่ตรวจจับ', peakDensity: 'ความหนาแน่นสูงสุด',
-      avgStationTime: 'เวลาเฉลี่ยที่อยู่ในสถานี', avgStationTimeVal: '48 นาที',
-      uniqueDeviceBySlot: 'จำนวน Unique Device ตามช่วงเวลา', devicesPerDay: 'อุปกรณ์/วัน',
-      stationNodeMap: 'แผนผัง Node สถานี — Heatmap รายชั่วโมง', selectHourDesc: 'เลือกชั่วโมงเพื่อดูความหนาแน่นของแต่ละ Node',
-      nodeDensity: 'ความหนาแน่น Node',
       // Detection slots
       slotMorning: 'เช้า', slotLate: 'สาย', slotNoon: 'เที่ยง', slotAfternoon: 'บ่าย', slotEvening: 'เย็น', slotNight: 'กลางคืน',
-      // Walk Path
-      deviceMovement: 'รายงานการเคลื่อนที่อุปกรณ์', walkPathDesc: 'DeepTrack — เส้นทางการเคลื่อนที่ Node → Node (Sankey Flow)',
-      selectTimeSlot: 'เลือกช่วงเวลา (Flow ราย 3 ชั่วโมง)',
-      indoorNode: 'Node ในอาคาร', outdoorNode: 'Node กลางแจ้ง', devicePath: 'เส้นทางอุปกรณ์', totalMovements: 'การเคลื่อนที่ทั้งหมด',
-      hubAnalysis: 'วิเคราะห์จุดศูนย์กลาง', hubDesc: 'จำนวนอุปกรณ์ที่ผ่านแต่ละ Node', detectedDevices: 'อุปกรณ์ตรวจจับ',
-      hourlyDeviceCount: 'จำนวนอุปกรณ์รายชั่วโมง', uniquePerHour: 'Unique Device ต่อชั่วโมง (DeepTrack 4.6)',
-      flowDetail: 'รายละเอียดการเคลื่อนที่อุปกรณ์ — Node → Node',
-      from: 'จาก', to: 'ไป', pctOfTotal: '% ของทั้งหมด', period: 'ช่วง',
-      // Node names
-      nodeEntA: 'ทางเข้า A', nodeEntB: 'ทางเข้า B', nodeMainHall: 'โถงกลาง', nodeTicket: 'จุดจำหน่ายตั๋ว',
-      nodeFoodCourt: 'ศูนย์อาหาร', nodePlat13: 'ชานชาลา 1-3', nodePlat46: 'ชานชาลา 4-6', nodeExitC: 'ทางออก C',
       // Weekly days
       mon: 'จ.', tue: 'อ.', wed: 'พ.', thu: 'พฤ.', fri: 'ศ.', sat: 'ส.', sun: 'อา.',
       // Kiosk location names
@@ -465,7 +194,7 @@ const AdminView = ({ onLogout }) => {
     },
     en: {
       sysTitle: 'Station Management System',
-      navKiosk: 'Kiosk Management', navHeatmap: 'LiveWalk Heat Map', navWalkpath: 'Walk Path Location',
+      navKiosk: 'Kiosk Management',
       darkMode: 'Dark Mode', lightMode: 'Light Mode', logout: 'Logout',
       kioskMgmt: 'Kiosk Management', kioskMgmtDesc: 'Manage advertisements, popups, maintenance & analytics',
       tabAds: 'Advertisement', tabPopup: 'Popup', tabMA: 'Kiosk MA', tabAnalytics: 'Analytics',
@@ -501,22 +230,7 @@ const AdminView = ({ onLogout }) => {
       langDistribution: 'Language Distribution', langDistDesc: 'Languages selected by Kiosk users this week',
       langTH: 'Thai', langEN: 'English', langCN: 'Chinese', langKR: 'Korean',
       kioskPerformance: 'Kiosk Performance', kioskPerfDesc: 'Top Kiosks by sessions',
-      dailyHeatmap: 'Daily Heat Map Report', heatmapDesc: 'DeepTrack — Hourly Density Heatmap (Distinct Device)',
-      activeSensors: 'Active Sensors', devicesDetected: 'Devices Detected', peakDensity: 'Peak Density',
-      avgStationTime: 'Avg Station Time', avgStationTimeVal: '48 min',
-      uniqueDeviceBySlot: 'Unique Devices by time slot', devicesPerDay: 'Devices/Day',
-      stationNodeMap: 'Station Node Map — Hourly Heatmap', selectHourDesc: 'Select hour to view density per node',
-      nodeDensity: 'Node Density',
       slotMorning: 'Morning', slotLate: 'Late Morning', slotNoon: 'Noon', slotAfternoon: 'Afternoon', slotEvening: 'Evening', slotNight: 'Night',
-      deviceMovement: 'Device Movement Report', walkPathDesc: 'DeepTrack — Node to Node Movement Path (Sankey Flow)',
-      selectTimeSlot: 'Select time slot (3-hour flow)',
-      indoorNode: 'Indoor Node', outdoorNode: 'Outdoor Node', devicePath: 'Device Path', totalMovements: 'Total Movements',
-      hubAnalysis: 'Hub Analysis', hubDesc: 'Devices passing through each node', detectedDevices: 'Detected Devices',
-      hourlyDeviceCount: 'Hourly Device Count', uniquePerHour: 'Unique Devices per hour (DeepTrack 4.6)',
-      flowDetail: 'Device Movement Detail — Node → Node',
-      from: 'From', to: 'To', pctOfTotal: '% of Total', period: 'Period',
-      nodeEntA: 'Entrance A', nodeEntB: 'Entrance B', nodeMainHall: 'Main Hall', nodeTicket: 'Ticket Counter',
-      nodeFoodCourt: 'Food Court', nodePlat13: 'Platform 1-3', nodePlat46: 'Platform 4-6', nodeExitC: 'Exit C',
       mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', sun: 'Sun',
       mainHall: 'Main Hall', entranceA: 'Entrance A', platform1: 'Platform 1', ticketArea: 'Ticket Counter', foodCourt: 'Food Court',
       // Targeting
@@ -557,11 +271,17 @@ const AdminView = ({ onLogout }) => {
   const KIOSK_LOCATIONS = ['Platform 1','Platform 2','Main Hall','Ticket Area','Platform 3','Food Court','Exit A','Exit B','Entrance A','Entrance B','Waiting Area','Platform 4','Info Center','Parking'];
   const [kiosks, setKiosks] = useState(Array.from({ length: 14 }, (_, i) => ({
     id: i + 1, name: `Kiosk ${String(i+1).padStart(2,'0')}`, location: KIOSK_LOCATIONS[i],
+    station: 'bangkok-central',
     status: i === 4 ? 'offline' : i === 11 ? 'offline' : 'online',
     uptime: i === 4 ? '0%' : i === 11 ? '0%' : `${(97 + Math.random() * 3).toFixed(1)}%`,
     lastRestart: `2026-02-${String(10 + Math.floor(Math.random()*8)).padStart(2,'0')} ${String(8+Math.floor(Math.random()*10)).padStart(2,'0')}:${String(Math.floor(Math.random()*60)).padStart(2,'0')}`,
     version: 'v3.3.0',
   })));
+
+  // ═══ Role-based kiosk filtering ═══
+  const visibleKiosks = currentUser?.role === 'Super Admin'
+    ? kiosks
+    : kiosks.filter(k => k.station === currentUser?.station);
   const [showSchedule, setShowSchedule] = useState(null);
   const [scheduleForm, setScheduleForm] = useState({ action: 'restart', date: '', time: '' });
   const [selectedKiosk, setSelectedKiosk] = useState(null);
@@ -585,17 +305,6 @@ const AdminView = ({ onLogout }) => {
     setTranslating(false);
   };
 
-  // ═══ DeepTrack Sensor Nodes (mock) — สถานีกลางกรุงเทพอภิวัฒน์ ═══
-  const NODES = [
-    { id: 'N01', name: 'ทางเข้า A', type: 'outdoor', status: 'active', x: 10, y: 15, detected: 14820, occupancy: 45 },
-    { id: 'N02', name: 'ทางเข้า B', type: 'outdoor', status: 'active', x: 88, y: 15, detected: 11540, occupancy: 38 },
-    { id: 'N03', name: 'โถงกลาง', type: 'indoor', status: 'active', x: 50, y: 35, detected: 22180, occupancy: 78 },
-    { id: 'N04', name: 'จุดจำหน่ายตั๋ว', type: 'indoor', status: 'active', x: 30, y: 50, detected: 18960, occupancy: 85 },
-    { id: 'N05', name: 'ศูนย์อาหาร', type: 'indoor', status: 'active', x: 72, y: 50, detected: 13450, occupancy: 52 },
-    { id: 'N06', name: 'ชานชาลา 1-3', type: 'indoor', status: 'active', x: 25, y: 80, detected: 19840, occupancy: 62 },
-    { id: 'N07', name: 'ชานชาลา 4-6', type: 'indoor', status: 'active', x: 75, y: 80, detected: 15670, occupancy: 55 },
-    { id: 'N08', name: 'ทางออก C', type: 'outdoor', status: 'active', x: 50, y: 92, detected: 9780, occupancy: 30 },
-  ];
 
   const DETECTION_SLOTS = [
     { label: 'เช้า', time: '06-09', count: 8420, pct: 48 },
@@ -606,30 +315,8 @@ const AdminView = ({ onLogout }) => {
     { label: 'กลางคืน', time: '21-00', count: 4280, pct: 24 },
   ];
 
-  const HOURLY_DATA = useMemo(() => {
-    const data = {};
-    NODES.forEach(n => {
-      data[n.id] = Array.from({ length: 24 }, (_, h) => {
-        const peak = h >= 9 && h <= 17 ? 1.0 : h >= 6 && h <= 20 ? 0.6 : 0.15;
-        return Math.min(100, Math.floor(n.occupancy * peak + Math.random() * 20));
-      });
-    });
-    return data;
-  }, []);
 
-  const FLOWS = [
-    { from: 'N01', to: 'N03', count: 8640, color: '#06B6D4' },
-    { from: 'N02', to: 'N03', count: 6780, color: '#3B82F6' },
-    { from: 'N03', to: 'N04', count: 11250, color: '#F59E0B' },
-    { from: 'N03', to: 'N05', count: 5890, color: '#10B981' },
-    { from: 'N04', to: 'N06', count: 9820, color: '#8B5CF6' },
-    { from: 'N04', to: 'N07', count: 5730, color: '#EC4899' },
-    { from: 'N05', to: 'N07', count: 3860, color: '#EF4444' },
-    { from: 'N06', to: 'N08', count: 4670, color: '#14B8A6' },
-    { from: 'N07', to: 'N08', count: 3520, color: '#F97316' },
-  ];
 
-  const FLOW_SLOTS = ['06-09', '09-12', '12-15', '15-18', '18-21', '21-00'];
 
   // ═══ Weekly sessions mock data (consistent) ═══
   // Weekly: จันทร์-ศุกร์ commuter สูง, ศุกร์ peak สุด (คนเดินทางกลับต่างจังหวัด), เสาร์ต่ำสุด, อาทิตย์กลับกรุงเทพ
@@ -657,14 +344,8 @@ const AdminView = ({ onLogout }) => {
 
   const nav = [
     { key: 'kiosk', icon: Layout, label: al.navKiosk },
-    { key: 'heatmap', icon: Activity, label: al.navHeatmap },
-    { key: 'walkpath', icon: MapPin, label: al.navWalkpath },
   ];
 
-  const occLevel = (v) => v > 80 ? { label: 'Alert', bg: 'bg-red-100 text-red-600', bar: 'bg-red-500' } : v > 50 ? { label: 'Busy', bg: 'bg-yellow-100 text-yellow-600', bar: 'bg-yellow-500' } : { label: 'Comfort', bg: 'bg-emerald-100 text-emerald-600', bar: 'bg-emerald-500' };
-  const nodeById = (id) => NODES.find(n => n.id === id);
-  const NODE_NAMES = { N01: 'nodeEntA', N02: 'nodeEntB', N03: 'nodeMainHall', N04: 'nodeTicket', N05: 'nodeFoodCourt', N06: 'nodePlat13', N07: 'nodePlat46', N08: 'nodeExitC' };
-  const nn = (id) => al[NODE_NAMES[id]] || id;
 
   // ═══ Dark theme helper ═══
   const dk = darkAdmin;
@@ -1214,9 +895,9 @@ const AdminView = ({ onLogout }) => {
             {kioskTab === 'ma' && (
               <div className="space-y-6">
                 <div className="grid grid-cols-3 gap-4">
-                  <Stat icon={Monitor} label={al.kiosksOnline} value={`${kiosks.filter(k=>k.status==='online').length}/${kiosks.length}`} color="bg-emerald-50 text-emerald-600"/>
-                  <Stat icon={Activity} label={al.avgUptime} value={`${(kiosks.filter(k=>k.status==='online').reduce((s,k)=>s+parseFloat(k.uptime),0)/Math.max(1,kiosks.filter(k=>k.status==='online').length)).toFixed(1)}%`} color="bg-blue-50 text-blue-600"/>
-                  <Stat icon={AlertTriangle} label={al.issues} value={String(kiosks.filter(k=>k.status==='offline').length)} color="bg-red-50 text-red-600"/>
+                  <Stat icon={Monitor} label={al.kiosksOnline} value={`${visibleKiosks.filter(k=>k.status==='online').length}/${visibleKiosks.length}`} color="bg-emerald-50 text-emerald-600"/>
+                  <Stat icon={Activity} label={al.avgUptime} value={`${(visibleKiosks.filter(k=>k.status==='online').reduce((s,k)=>s+parseFloat(k.uptime),0)/Math.max(1,visibleKiosks.filter(k=>k.status==='online').length)).toFixed(1)}%`} color="bg-blue-50 text-blue-600"/>
+                  <Stat icon={AlertTriangle} label={al.issues} value={String(visibleKiosks.filter(k=>k.status==='offline').length)} color="bg-red-50 text-red-600"/>
                 </div>
 
                 {/* Kiosk detail panel (when selected) */}
@@ -1313,7 +994,7 @@ const AdminView = ({ onLogout }) => {
                     <span className={`text-xs ${t.textMuted}`}>{al.clickToManage}</span>
                   </div>
                   <div className="p-5 grid grid-cols-2 gap-3">
-                    {kiosks.map(k => (
+                    {visibleKiosks.map(k => (
                       <div key={k.id} onClick={() => setSelectedKiosk(selectedKiosk === k.id ? null : k.id)}
                         className={`flex items-center justify-between p-3 rounded-xl border cursor-pointer transition-all ${
                           selectedKiosk === k.id ? (dk ? 'border-cyan-600 bg-cyan-950/30 shadow-sm' : 'border-cyan-400 bg-cyan-50 shadow-sm') :
@@ -1585,320 +1266,6 @@ const AdminView = ({ onLogout }) => {
           </div>
         )}
 
-        {/* ═══ LiveWalk Heat Map (DeepTrack 4.2 + 4.8) ═══ */}
-        {view === 'heatmap' && (
-          <div className="space-y-6 animate-fade-in max-w-6xl">
-            <div className="flex justify-between items-start">
-              <div>
-                <h2 className={`text-2xl font-bold ${t.text} flex items-center gap-2`}><Activity className="text-red-500"/> {al.dailyHeatmap}</h2>
-                <p className={`text-sm ${t.textMuted} mt-1`}>{al.heatmapDesc}</p>
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="flex items-center gap-1.5 text-xs font-bold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full"><span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"/>{NODES.filter(n=>n.status==='active').length} {al.activeSensors}</span>
-              </div>
-            </div>
-
-            {/* Dashboard Overview (4.8) */}
-            <div className="grid grid-cols-4 gap-4">
-              <Stat icon={Wifi} label={al.activeSensors} value={`${NODES.filter(n=>n.status==='active').length}/${NODES.length}`} color="bg-cyan-50 text-cyan-600"/>
-              <Stat icon={Users} label={al.devicesDetected} value="126,240" color="bg-blue-50 text-blue-600"/>
-              <Stat icon={Activity} label={al.peakDensity} value="92%" color="bg-red-50 text-red-600"/>
-              <Stat icon={Clock} label={al.avgStationTime} value={al.avgStationTimeVal} color="bg-purple-50 text-purple-600"/>
-            </div>
-
-            {/* สรุปการตรวจจับตามช่วงเวลา (4.8) — Chart.js */}
-            <div className={`${t.card} rounded-2xl border overflow-hidden`}>
-              <div className={`p-5 border-b ${t.borderSubtle} flex justify-between items-center`}>
-                <div>
-                  <h3 className={`text-base font-bold ${t.text} flex items-center gap-2`}><BarChart3 size={18} className="text-blue-500"/> {al.detectionSummary}</h3>
-                  <p className={`text-sm ${t.textMuted} mt-0.5`}>{al.uniqueDeviceBySlot}</p>
-                </div>
-                <span className={`text-lg font-bold ${dk ? 'text-gray-200' : 'text-gray-700'} font-inter`}>{DETECTION_SLOTS.reduce((s,d)=>s+d.count,0).toLocaleString()} <span className={`text-sm font-medium ${t.textMuted}`}>{al.devicesPerDay}</span></span>
-              </div>
-              <div className="p-5">
-                <ChartCanvas height={260} data={{
-                  labels: [al.slotMorning, al.slotLate, al.slotNoon, al.slotAfternoon, al.slotEvening, al.slotNight].map((l,i) => `${l} (${DETECTION_SLOTS[i].time})`),
-                  datasets: [{
-                    label: al.devices,
-                    data: DETECTION_SLOTS.map(s => s.count),
-                    backgroundColor: DETECTION_SLOTS.map(s => s.pct > 80 ? '#EF4444' : s.pct > 60 ? '#F59E0B' : s.pct > 30 ? '#06B6D4' : '#94A3B8'),
-                    borderRadius: 8, borderSkipped: false, barPercentage: 0.65,
-                  }]
-                }} options={{
-                  responsive: true, maintainAspectRatio: false,
-                  plugins: { legend: { display: false }, tooltip: { ...tooltipStyle, callbacks: { label: ctx => `${ctx.parsed.y.toLocaleString()} ${al.devices}` } } },
-                  scales: {
-                    x: { grid: { display: false }, ticks: { ...chartTick, font: { ...chartTick.font, size: 13 } } },
-                    y: { beginAtZero: true, grid: chartGrid, ticks: { ...chartTick, callback: v => v >= 1000 ? (v/1000)+'K' : v } }
-                  }
-                }}/>
-              </div>
-            </div>
-
-            {/* Interactive Node Map + Hourly Timeline (4.2) */}
-            <div className={`${t.card} rounded-2xl border overflow-hidden`}>
-              <div className={`p-5 border-b ${t.borderSubtle} flex justify-between items-center`}>
-                <div>
-                  <h3 className={`text-base font-bold ${t.text}`}>{al.stationNodeMap}</h3>
-                  <p className={`text-sm ${t.textMuted} mt-0.5`}>{al.selectHourDesc}</p>
-                </div>
-                <div className={`flex items-center gap-3 text-[10px] font-bold ${t.textMuted}`}>
-                  <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-emerald-500"/>Comfort</span>
-                  <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-yellow-500"/>Busy</span>
-                  <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-red-500"/>Alert</span>
-                </div>
-              </div>
-              <div className="p-6">
-                {/* Hour selector */}
-                <div className="flex items-center gap-2 mb-4">
-                  <Clock size={14} className={t.textMuted}/>
-                  <span className={`text-xs font-bold ${t.textSec} w-20`}>{String(heatHour).padStart(2,'0')}:00 น.</span>
-                  <input type="range" min="0" max="23" value={heatHour} onChange={e=>setHeatHour(parseInt(e.target.value))}
-                    className={`flex-1 h-1.5 ${dk ? 'bg-gray-700' : 'bg-gray-200'} rounded-lg appearance-none cursor-pointer accent-cyan-600`}/>
-                  <span className={`text-[10px] ${t.textMuted} font-inter`}>00:00 — 23:00</span>
-                </div>
-
-                {/* Station map with nodes */}
-                <div className={`relative ${t.mapBg} rounded-xl border`} style={{ height: '340px' }}>
-                  {NODES.map(n => {
-                    const val = HOURLY_DATA[n.id]?.[heatHour] || 0;
-                    const lv = occLevel(val);
-                    return (
-                      <div key={n.id} className="absolute group cursor-default" style={{ left: `${n.x}%`, top: `${n.y}%`, transform: 'translate(-50%, -50%)' }}>
-                        {/* Pulse ring */}
-                        <div className={`absolute inset-0 rounded-full ${lv.bar} opacity-20 animate-ping`} style={{ width: '48px', height: '48px', margin: '-12px' }}/>
-                        {/* Node dot */}
-                        <div className={`w-6 h-6 rounded-full ${lv.bar} border-2 border-white shadow-md flex items-center justify-center`}>
-                          <span className="text-[8px] font-bold text-white">{val}</span>
-                        </div>
-                        {/* Tooltip */}
-                        <div className="absolute -top-16 left-1/2 -translate-x-1/2 bg-gray-800 text-white text-[10px] px-3 py-2 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-20 shadow-lg">
-                          <p className="font-bold">{nn(n.id)} ({n.id})</p>
-                          <p>Occupancy: {val}% — <span className={val>80?'text-red-300':val>50?'text-yellow-300':'text-emerald-300'}>{lv.label}</span></p>
-                          <p className="text-gray-400">{n.type === 'indoor' ? 'Indoor' : 'Outdoor'} sensor</p>
-                        </div>
-                        {/* Label */}
-                        <span className={`absolute top-7 left-1/2 -translate-x-1/2 text-[9px] font-bold ${t.textSec} whitespace-nowrap`}>{nn(n.id)}</span>
-                      </div>
-                    );
-                  })}
-                  {/* TCC badge */}
-                  <div className={`absolute bottom-3 right-4 ${dk ? 'bg-gray-800/90 border-gray-700' : 'bg-white/90 border-gray-200'} border rounded-lg px-3 py-1.5 text-[10px]`}>
-                    <span className={t.textMuted}>Tourism Carrying Capacity:</span>
-                    <span className={`font-bold ${dk ? 'text-gray-200' : 'text-gray-700'} ml-1`}>5,000 devices</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Node Occupancy Table */}
-            <div className={`${t.card} rounded-2xl border overflow-hidden`}>
-              <div className={`p-5 border-b ${t.borderSubtle}`}><h3 className={`text-base font-bold ${t.text}`}>{al.nodeDensity} — {String(heatHour).padStart(2,'0')}:00</h3></div>
-              <table className="w-full text-sm">
-                <thead className={`${t.cardHead} ${t.textSec} text-xs uppercase`}>
-                  <tr><th className="px-5 py-3 text-left">Node</th><th className="px-5 py-3 text-left">Location</th><th className="px-5 py-3 text-center">Type</th><th className="px-5 py-3 text-center">Occupancy</th><th className="px-5 py-3 text-center">Status</th><th className="px-5 py-3 text-right">Detected</th></tr>
-                </thead>
-                <tbody className={`${t.divider} divide-y`}>
-                  {NODES.map(n => {
-                    const val = HOURLY_DATA[n.id]?.[heatHour] || 0;
-                    const lv = occLevel(val);
-                    return (
-                      <tr key={n.id} className={`${t.hoverSubtle} cursor-default`}>
-                        <td className={`px-5 py-3 font-bold font-inter ${t.text}`}>{n.id}</td>
-                        <td className={`px-5 py-3 font-medium ${dk ? 'text-gray-200' : 'text-gray-700'}`}>{nn(n.id)}</td>
-                        <td className="px-5 py-3 text-center"><span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${n.type==='indoor'?'bg-blue-50 text-blue-600':'bg-amber-50 text-amber-600'}`}>{n.type}</span></td>
-                        <td className="px-5 py-3">
-                          <div className="flex items-center gap-2 justify-center">
-                            <div className={`w-20 h-2 ${t.progressBg} rounded-full overflow-hidden`}><div className={`h-full rounded-full ${lv.bar}`} style={{width:`${val}%`}}/></div>
-                            <span className={`text-xs font-bold font-inter ${dk ? 'text-gray-200' : 'text-gray-700'} w-8`}>{val}%</span>
-                          </div>
-                        </td>
-                        <td className="px-5 py-3 text-center"><span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${lv.bg}`}>{lv.label}</span></td>
-                        <td className={`px-5 py-3 text-right font-inter ${dk ? 'text-gray-300' : 'text-gray-600'}`}>{n.detected.toLocaleString()}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {/* ═══ Device Flow & Walk Path (DeepTrack 4.4 + 4.5) ═══ */}
-        {view === 'walkpath' && (
-          <div className="space-y-6 animate-fade-in max-w-6xl">
-            <div className="flex justify-between items-start">
-              <div>
-                <h2 className={`text-2xl font-bold ${t.text} flex items-center gap-2`}><MapPin className="text-indigo-500"/> {al.deviceMovement}</h2>
-                <p className={`text-sm ${t.textMuted} mt-1`}>{al.walkPathDesc}</p>
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="flex items-center gap-1.5 text-xs font-bold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full"><span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"/>LIVE</span>
-              </div>
-            </div>
-
-            {/* Time slot selector */}
-            <div className={`${t.card} rounded-2xl border p-5`}>
-              <div className="flex items-center gap-3 mb-3">
-                <Clock size={16} className={t.textMuted}/>
-                <span className={`text-sm font-bold ${dk ? 'text-gray-200' : 'text-gray-700'}`}>{al.selectTimeSlot}</span>
-              </div>
-              <div className="flex gap-2">
-                {FLOW_SLOTS.map((s, i) => (
-                  <button key={i} onClick={() => setFlowSlot(i)}
-                    className={`flex-1 py-2 rounded-xl text-sm font-bold transition-all cursor-pointer ${flowSlot === i ? 'bg-indigo-600 text-white shadow-md' : (dk ? 'bg-gray-700 text-gray-400 hover:bg-gray-600' : 'bg-gray-100 text-gray-500 hover:bg-gray-200')}`}>
-                    {s}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Flow visualization — Three.js 3D Flow Map */}
-            <div className="bg-gray-900 rounded-2xl border border-gray-700/50 overflow-hidden shadow-xl">
-              <div className="p-5 border-b border-gray-800 flex justify-between items-center">
-                <h3 className="font-bold text-white flex items-center gap-2"><Zap size={16} className="text-cyan-400"/> Node → Node Flow Map <span className="text-[10px] font-medium text-gray-500 ml-1">3D</span></h3>
-                <div className="flex items-center gap-3">
-                  <span className="text-[10px] text-gray-500">Drag to rotate &middot; Hover nodes for details</span>
-                  <span className="text-xs text-gray-400 font-inter bg-gray-800 px-2 py-0.5 rounded-md">{al.period} {FLOW_SLOTS[flowSlot]}</span>
-                </div>
-              </div>
-              <FlowMap3D nodes={NODES} flows={FLOWS}/>
-              {/* Legend */}
-              <div className="px-5 py-3 border-t border-gray-800 flex items-center gap-4">
-                <span className="flex items-center gap-1.5 text-xs text-gray-400"><span className="w-2.5 h-2.5 rounded-full bg-indigo-500"/>{al.indoorNode}</span>
-                <span className="flex items-center gap-1.5 text-xs text-gray-400"><span className="w-2.5 h-2.5 rounded-full bg-cyan-500"/>{al.outdoorNode}</span>
-                <span className="flex items-center gap-1.5 text-xs text-gray-400"><span className="w-3 h-0.5 bg-gradient-to-r from-cyan-500 to-indigo-500 rounded"/>{al.devicePath}</span>
-                <span className="ml-auto text-xs text-gray-500 font-inter">{FLOWS.reduce((s,f)=>s+f.count,0).toLocaleString()} {al.totalMovements}</span>
-              </div>
-            </div>
-
-            {/* Center Flow Analysis (4.5) — Hub & Visited Hours */}
-            <div className="grid grid-cols-2 gap-6">
-              {/* Hub Analysis — Chart.js */}
-              <div className={`${t.card} rounded-2xl border overflow-hidden`}>
-                <div className={`p-5 border-b ${t.borderSubtle} flex justify-between items-start`}>
-                  <div>
-                    <h3 className={`text-base font-bold ${t.text} flex items-center gap-2`}><Zap size={18} className="text-amber-500"/> {al.hubAnalysis}</h3>
-                    <p className={`text-sm ${t.textMuted} mt-0.5`}>{al.hubDesc}</p>
-                  </div>
-                  <span className={`text-lg font-bold font-inter ${t.text}`}>{[...NODES].reduce((s,n)=>s+n.detected,0).toLocaleString()}</span>
-                </div>
-                <div className="p-5">
-                  {(() => {
-                    const sorted = [...NODES].sort((a,b)=>b.detected-a.detected);
-                    return <ChartCanvas height={240} data={{
-                      labels: sorted.map(n => nn(n.id)),
-                      datasets: [{
-                        label: al.detectedDevices,
-                        data: sorted.map(n => n.detected),
-                        backgroundColor: sorted.map((_, i) => i === 0 ? '#F59E0B' : i < 3 ? '#60A5FA' : (dk ? '#6B7280' : '#CBD5E1')),
-                        borderRadius: 6, borderSkipped: false, barPercentage: 0.7, categoryPercentage: 0.8,
-                      }]
-                    }} options={{
-                      responsive: true, maintainAspectRatio: false,
-                      plugins: { legend: { display: false }, tooltip: { ...tooltipStyle, callbacks: { label: ctx => `${ctx.parsed.y.toLocaleString()} ${al.devices}` } } },
-                      scales: { x: { grid: { display: false }, ticks: { ...chartTick, font: { family: 'Prompt', size: 11 }, maxRotation: 45, minRotation: 20 } }, y: { grid: chartGrid, ticks: { ...chartTick, callback: v => v >= 1000 ? (v/1000)+'K' : v }, beginAtZero: true } }
-                    }}/>;
-                  })()}
-                  {/* Node ranking */}
-                  <div className={`mt-4 grid grid-cols-2 gap-2`}>
-                    {[...NODES].sort((a,b)=>b.detected-a.detected).slice(0,4).map((n, i) => (
-                      <div key={n.id} className={`${t.statBg} rounded-lg p-2.5 flex items-center gap-2`}>
-                        <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${i===0?'bg-amber-500 text-white':i<2?'bg-blue-400 text-white':(dk?'bg-gray-600 text-gray-300':'bg-gray-200 text-gray-500')}`}>{i+1}</span>
-                        <div className="flex-1 min-w-0">
-                          <span className={`text-sm font-bold ${dk ? 'text-gray-200' : 'text-gray-700'} block truncate`}>{nn(n.id)}</span>
-                          <span className={`text-xs ${t.textMuted} font-inter`}>{n.detected.toLocaleString()} {al.devices}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* จำนวนอุปกรณ์รายชั่วโมง — Chart.js */}
-              <div className={`${t.card} rounded-2xl border overflow-hidden`}>
-                <div className={`p-5 border-b ${t.borderSubtle} flex justify-between items-start`}>
-                  <div>
-                    <h3 className={`text-base font-bold ${t.text} flex items-center gap-2`}><TrendingUp size={18} className="text-indigo-500"/> {al.hourlyDeviceCount}</h3>
-                    <p className={`text-sm ${t.textMuted} mt-0.5`}>{al.uniquePerHour}</p>
-                  </div>
-                  <div className="text-right">
-                    <span className={`text-lg font-bold font-inter ${t.text}`}>{VISITED_HOURS.reduce((s,v)=>s+v,0).toLocaleString()}</span>
-                    <p className={`text-xs ${t.textMuted}`}>{al.devicesPerDay}</p>
-                  </div>
-                </div>
-                <div className="p-5">
-                  <ChartCanvas height={240} data={{
-                    labels: Array.from({length:24}, (_,i) => String(i).padStart(2,'0')+':00'),
-                    datasets: [{
-                      label: al.devices,
-                      data: VISITED_HOURS,
-                      backgroundColor: VISITED_HOURS.map(v => { const maxV = Math.max(...VISITED_HOURS); const pct = v/maxV*100; return pct > 80 ? '#EF4444' : pct > 50 ? '#F59E0B' : '#06B6D4'; }),
-                      borderRadius: 3, borderSkipped: false, barPercentage: 0.85, categoryPercentage: 0.9,
-                    }]
-                  }} options={{
-                    responsive: true, maintainAspectRatio: false,
-                    plugins: { legend: { display: false }, tooltip: { ...tooltipStyle, callbacks: { title: ctx => ctx[0].label, label: ctx => `${ctx.parsed.y.toLocaleString()} ${al.devices}` } } },
-                    scales: { x: { grid: { display: false }, ticks: { ...chartTick, maxRotation: 0, callback: function(val, idx) { return idx % 4 === 0 ? this.getLabelForValue(val) : ''; } } }, y: { grid: chartGrid, ticks: { ...chartTick, callback: v => v >= 1000 ? (v/1000)+'K' : v }, beginAtZero: true } }
-                  }}/>
-                  {/* Stats */}
-                  <div className={`mt-3 grid grid-cols-3 gap-2`}>
-                    {[
-                      { label: al.morning, val: VISITED_HOURS.slice(7,10).reduce((s,v)=>s+v,0) },
-                      { label: al.evening, val: VISITED_HOURS.slice(16,20).reduce((s,v)=>s+v,0) },
-                      { label: al.avgPerHr, val: Math.round(VISITED_HOURS.reduce((s,v)=>s+v,0)/24) },
-                    ].map((s, i) => (
-                      <div key={i} className={`${t.statBg} rounded-lg p-2.5 text-center`}>
-                        <p className={`text-xs ${t.textMuted} font-bold`}>{s.label}</p>
-                        <p className={`text-base font-bold font-inter ${t.text} mt-0.5`}>{s.val.toLocaleString()}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* ตารางรายละเอียด Flow */}
-            <div className={`${t.card} rounded-2xl border overflow-hidden`}>
-              <div className={`p-5 border-b ${t.borderSubtle}`}><h3 className={`text-base font-bold ${t.text}`}>{al.flowDetail}</h3></div>
-              <table className="w-full text-sm">
-                <thead className={`${t.cardHead} ${t.textSec} text-xs uppercase`}>
-                  <tr><th className="px-5 py-3 text-left">{al.from}</th><th className="px-5 py-3 text-center">→</th><th className="px-5 py-3 text-left">{al.to}</th><th className="px-5 py-3 text-right">{al.devices}</th><th className="px-5 py-3 text-right">{al.pctOfTotal}</th></tr>
-                </thead>
-                <tbody className={`${t.divider} divide-y`}>
-                  {[...FLOWS].sort((a,b)=>b.count-a.count).map((f, i) => {
-                    const from = nodeById(f.from), to = nodeById(f.to);
-                    const total = FLOWS.reduce((s,fl)=>s+fl.count,0);
-                    return (
-                      <tr key={i} className={`${t.hoverSubtle} cursor-default`}>
-                        <td className="px-5 py-3">
-                          <div className="flex items-center gap-2">
-                            <div className="w-6 h-6 rounded-full bg-indigo-100 flex items-center justify-center text-[9px] font-bold text-indigo-700">{f.from.replace('N','')}</div>
-                            <span className={`font-medium ${t.text}`}>{nn(f.from)}</span>
-                          </div>
-                        </td>
-                        <td className="px-5 py-3 text-center"><ArrowRight size={14} className={`${dk ? 'text-gray-600' : 'text-gray-300'} mx-auto`}/></td>
-                        <td className="px-5 py-3">
-                          <div className="flex items-center gap-2">
-                            <div className="w-6 h-6 rounded-full bg-cyan-100 flex items-center justify-center text-[9px] font-bold text-cyan-700">{f.to.replace('N','')}</div>
-                            <span className={`font-medium ${t.text}`}>{nn(f.to)}</span>
-                          </div>
-                        </td>
-                        <td className={`px-5 py-3 text-right font-inter font-bold ${t.text}`}>{f.count.toLocaleString()}</td>
-                        <td className="px-5 py-3 text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <div className={`w-16 h-1.5 ${t.progressBg} rounded-full overflow-hidden`}><div className="h-full rounded-full" style={{width:`${(f.count/total*100).toFixed(0)}%`, backgroundColor:f.color}}/></div>
-                            <span className={`text-xs font-inter ${t.textSec}`}>{(f.count/total*100).toFixed(1)}%</span>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
 
       </div>
     </div>
@@ -1910,7 +1277,7 @@ const AdminView = ({ onLogout }) => {
 // 7. MAIN APP (Admin-only)
 // ═══════════════════════════════════════════
 function App() {
-  const [logged, setLogged] = useState(false);
+  const [logged, setLogged] = useState(null);
   const [users, setUsers] = useState([]);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -1926,15 +1293,16 @@ function App() {
 
   const login = (e) => {
     e.preventDefault();
-    if (username==='admin'&&password==='1234') { setLogged(true); return; }
+    const hardcoded = FALLBACK_USERS.find(u => u.email === username && u.password === password);
+    if (hardcoded) { setLogged(hardcoded); return; }
     const f = users.find(u=>(u.email===username||u.email===username+'@srt.or.th')&&u.password===password);
-    if (f) { setLogged(true); }
+    if (f) { setLogged(f); }
     else setLoginErr('Invalid username or password');
   };
 
-  const logout = () => { setLogged(false); setUsername(''); setPassword(''); setLoginErr(''); };
+  const logout = () => { setLogged(null); setUsername(''); setPassword(''); setLoginErr(''); };
 
-  if (logged) return <AdminView onLogout={logout}/>;
+  if (logged) return <AdminView onLogout={logout} currentUser={logged}/>;
 
   return (
     <div className="h-full flex items-center justify-center bg-kiosk-bg font-prompt relative overflow-hidden">
