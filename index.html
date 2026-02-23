@@ -80,7 +80,7 @@ import {
 // ═══════════════════════════════════════════
 // 1. CONFIGURATION
 // ═══════════════════════════════════════════
-const APP_VERSION = "1.2.0";
+const APP_VERSION = "1.2.1";
 
 const SUPABASE_URL = "https://ecdgafksqlbuscetftok.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVjZGdhZmtzcWxidXNjZXRmdG9rIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY5NjM3MjMsImV4cCI6MjA4MjUzOTcyM30.fvM68OgwvmLupKXC0NNjsf1Lggv8WlBufC0JVr6q7V4";
@@ -133,6 +133,7 @@ const AdminView = ({ onLogout, currentUser }) => {
   const [kioskTab, setKioskTab] = useState('ads');
   const [darkAdmin, setDarkAdmin] = useState(false);
   const [adminLang, setAdminLang] = useState('th');
+  const [selectedStation, setSelectedStation] = useState('all');
   // ═══ Admin i18n ═══
   const AL = {
     th: {
@@ -191,6 +192,7 @@ const AdminView = ({ onLogout, currentUser }) => {
       targetStations: 'สถานี', targetZones: 'โซน', targetKiosks: 'Kiosk',
       selectStations: 'เลือกสถานี', selectZones: 'เลือกโซน', selectKiosks: 'เลือก Kiosk',
       allStations: 'ทุกที่', stationCount: 'สถานี', kioskCount: 'Kiosk', zoneCount: 'โซน',
+      stationSelector: 'เลือกสถานี', yourStationLabel: 'สถานีของคุณ', allStationsBtn: 'ทุกสถานี',
     },
     en: {
       sysTitle: 'Station Management System',
@@ -238,6 +240,7 @@ const AdminView = ({ onLogout, currentUser }) => {
       targetStations: 'Stations', targetZones: 'Zones', targetKiosks: 'Kiosks',
       selectStations: 'Select Stations', selectZones: 'Select Zones', selectKiosks: 'Select Kiosks',
       allStations: 'All', stationCount: 'Stations', kioskCount: 'Kiosks', zoneCount: 'Zones',
+      stationSelector: 'Select Station', yourStationLabel: 'Your Station', allStationsBtn: 'All Stations',
     }
   };
   const al = AL[adminLang];
@@ -280,8 +283,19 @@ const AdminView = ({ onLogout, currentUser }) => {
 
   // ═══ Role-based kiosk filtering ═══
   const visibleKiosks = currentUser?.role === 'Super Admin'
-    ? kiosks
+    ? (selectedStation === 'all' ? kiosks : kiosks.filter(k => k.station === selectedStation))
     : kiosks.filter(k => k.station === currentUser?.station);
+
+  // ═══ Role-based ads/popup filtering ═══
+  const visibleAds = currentUser?.role === 'Super Admin'
+    ? ads
+    : ads.filter(a => !a.targeting?.mode || a.targeting.mode === 'all'
+        || a.targeting.stations?.includes(currentUser?.station));
+
+  const visiblePopups = currentUser?.role === 'Super Admin'
+    ? popups
+    : popups.filter(p => !p.targeting?.mode || p.targeting.mode === 'all'
+        || p.targeting.stations?.includes(currentUser?.station));
   const [showSchedule, setShowSchedule] = useState(null);
   const [scheduleForm, setScheduleForm] = useState({ action: 'restart', date: '', time: '' });
   const [selectedKiosk, setSelectedKiosk] = useState(null);
@@ -393,10 +407,25 @@ const AdminView = ({ onLogout, currentUser }) => {
     return { label: parts.join(', ') || al.allStations, cls: parts.length ? 'bg-orange-100 text-orange-700' : 'bg-emerald-100 text-emerald-700' };
   };
 
-  const TargetingSection = ({ targeting, setTargeting, accentColor = 'cyan' }) => {
-    const isTargeted = targeting.mode === 'targeted';
-    const toggleMode = () => setTargeting({ ...targeting, mode: isTargeted ? 'all' : 'targeted', stations: [], kiosks: [], zones: [] });
+  const TargetingSection = ({ targeting, setTargeting, accentColor = 'cyan', currentUser: tgtUser }) => {
+    const isAdmin = tgtUser?.role === 'Admin';
+    const isTargeted = isAdmin ? true : targeting.mode === 'targeted';
+
+    // Admin: force targeted mode with their station locked on mount
+    useEffect(() => {
+      if (isAdmin && tgtUser?.station) {
+        if (targeting.mode !== 'targeted' || !targeting.stations?.includes(tgtUser.station)) {
+          setTargeting({ ...targeting, mode: 'targeted', stations: [tgtUser.station] });
+        }
+      }
+    }, [isAdmin]);
+
+    const toggleMode = () => {
+      if (isAdmin) return; // Admin can't toggle
+      setTargeting({ ...targeting, mode: isTargeted ? 'all' : 'targeted', stations: [], kiosks: [], zones: [] });
+    };
     const toggleItem = (field, val) => {
+      if (isAdmin && field === 'stations') return; // Admin can't change station
       const arr = targeting[field] || [];
       setTargeting({ ...targeting, [field]: arr.includes(val) ? arr.filter(v => v !== val) : [...arr, val] });
     };
@@ -411,23 +440,32 @@ const AdminView = ({ onLogout, currentUser }) => {
     return (
       <div>
         <label className={`text-xs font-bold ${t.textSec} uppercase mb-2 block`}>{al.targeting}</label>
-        <div className="flex gap-3 mb-3">
-          <button type="button" onClick={toggleMode}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all cursor-pointer border ${
-              !isTargeted ? `border-${accentColor}-400 bg-${accentColor}-50 text-${accentColor}-700 ${dk ? `border-${accentColor}-600 bg-${accentColor}-950/30 text-${accentColor}-400` : ''}` : `${t.border} ${t.textSec} ${t.hover}`
-            }`}>
-            <Globe size={14}/> {al.targetAll}
-          </button>
-          <button type="button" onClick={toggleMode}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all cursor-pointer border ${
-              isTargeted ? `border-${accentColor}-400 bg-${accentColor}-50 text-${accentColor}-700 ${dk ? `border-${accentColor}-600 bg-${accentColor}-950/30 text-${accentColor}-400` : ''}` : `${t.border} ${t.textSec} ${t.hover}`
-            }`}>
-            <MapPin size={14}/> {al.targetSelected}
-          </button>
-        </div>
+        {isAdmin ? (
+          <div className="flex gap-3 mb-3">
+            <div className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold border border-${accentColor}-400 bg-${accentColor}-50 text-${accentColor}-700 ${dk ? `border-${accentColor}-600 bg-${accentColor}-950/30 text-${accentColor}-400` : ''}`}>
+              <Lock size={14}/> {STATIONS.find(s => s.id === tgtUser?.station)?.name[adminLang] || tgtUser?.station}
+            </div>
+          </div>
+        ) : (
+          <div className="flex gap-3 mb-3">
+            <button type="button" onClick={toggleMode}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all cursor-pointer border ${
+                !isTargeted ? `border-${accentColor}-400 bg-${accentColor}-50 text-${accentColor}-700 ${dk ? `border-${accentColor}-600 bg-${accentColor}-950/30 text-${accentColor}-400` : ''}` : `${t.border} ${t.textSec} ${t.hover}`
+              }`}>
+              <Globe size={14}/> {al.targetAll}
+            </button>
+            <button type="button" onClick={toggleMode}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all cursor-pointer border ${
+                isTargeted ? `border-${accentColor}-400 bg-${accentColor}-50 text-${accentColor}-700 ${dk ? `border-${accentColor}-600 bg-${accentColor}-950/30 text-${accentColor}-400` : ''}` : `${t.border} ${t.textSec} ${t.hover}`
+              }`}>
+              <MapPin size={14}/> {al.targetSelected}
+            </button>
+          </div>
+        )}
         {isTargeted && (
           <div className={`space-y-4 p-4 rounded-xl border ${t.border} ${t.statBg}`}>
             {/* Stations */}
+            {!isAdmin && (
             <div>
               <label className={`text-[10px] font-bold ${t.textMuted} uppercase mb-2 block`}>{al.selectStations}</label>
               <div className="flex flex-wrap gap-2">
@@ -441,6 +479,7 @@ const AdminView = ({ onLogout, currentUser }) => {
                 ))}
               </div>
             </div>
+            )}
             {/* Zones */}
             <div>
               <label className={`text-[10px] font-bold ${t.textMuted} uppercase mb-2 block`}>{al.selectZones}</label>
@@ -667,7 +706,7 @@ const AdminView = ({ onLogout, currentUser }) => {
                       <tr><th className="px-5 py-3 text-left">{al.thCampaign}</th><th className="px-5 py-3 text-center">{al.thType}</th><th className="px-5 py-3 text-center">{al.thStatus}</th><th className="px-5 py-3 text-center">{al.targeting}</th><th className="px-5 py-3 text-center">{al.thPeriod}</th><th className="px-5 py-3 text-right">{al.thImpressions}</th><th className="px-5 py-3 text-right">{al.thCTR}</th><th className="px-5 py-3 text-center">{al.thActions}</th></tr>
                     </thead>
                     <tbody className={`${t.divider} divide-y`}>
-                      {ads.map(a => (
+                      {visibleAds.map(a => (
                         <tr key={a.id} className={`${t.hoverSubtle} cursor-default`}>
                           <td className={`px-5 py-3.5 font-medium ${t.text}`}>{a.name}</td>
                           <td className="px-5 py-3.5 text-center"><span className={`text-xs font-bold px-2 py-0.5 rounded-full ${t.badge}`}>{a.type}</span></td>
@@ -748,7 +787,7 @@ const AdminView = ({ onLogout, currentUser }) => {
                           <input value={adForm.imageUrl} onChange={e => setAdForm(f => ({...f, imageUrl: e.target.value}))}
                             className={`w-full border ${t.input} rounded-xl py-2.5 px-4 text-sm mt-1 focus:outline-none focus:border-cyan-400 transition-colors`} placeholder="https://example.com/ad-banner.jpg"/>
                         </div>
-                        <TargetingSection targeting={adForm.targeting} setTargeting={(tgt) => setAdForm(f => ({...f, targeting: tgt}))} accentColor="cyan"/>
+                        <TargetingSection targeting={adForm.targeting} setTargeting={(tgt) => setAdForm(f => ({...f, targeting: tgt}))} accentColor="cyan" currentUser={currentUser}/>
                       </div>
                       <div className="flex justify-end gap-3 mt-6">
                         <button onClick={() => setShowAdForm(false)} className={`px-4 py-2 rounded-xl text-sm font-medium ${t.textSec} ${t.hover} transition-colors cursor-pointer`}>{al.cancel}</button>
@@ -769,7 +808,7 @@ const AdminView = ({ onLogout, currentUser }) => {
                     <button onClick={openNewPopup} className="bg-orange-500 hover:bg-orange-600 text-white font-bold px-4 py-2 rounded-xl btn-press cursor-pointer flex items-center gap-1.5 transition-colors text-sm"><Plus size={16}/>{al.newPopup}</button>
                   </div>
                   <div className="p-5 space-y-3">
-                    {popups.map(p => (
+                    {visiblePopups.map(p => (
                       <div key={p.id} className={`p-4 rounded-xl border transition-colors ${p.active ? `${t.borderLight} ${dk ? 'hover:border-gray-600' : 'hover:border-gray-200'}` : `${t.borderLight} ${t.statBg} opacity-60`}`}>
                         <div className="flex items-start justify-between">
                           <div className="flex-1 min-w-0">
@@ -879,7 +918,7 @@ const AdminView = ({ onLogout, currentUser }) => {
                               className={`w-full border ${t.input} rounded-xl py-2.5 px-4 text-sm focus:outline-none focus:border-orange-400 resize-none h-16 transition-colors`} placeholder={al.krTranslation}/>
                           </div>
                         )}
-                        <TargetingSection targeting={popupForm.targeting} setTargeting={(tgt) => setPopupForm(f => ({...f, targeting: tgt}))} accentColor="orange"/>
+                        <TargetingSection targeting={popupForm.targeting} setTargeting={(tgt) => setPopupForm(f => ({...f, targeting: tgt}))} accentColor="orange" currentUser={currentUser}/>
                       </div>
                       <div className="flex justify-end gap-3 mt-6">
                         <button onClick={() => setShowPopupForm(false)} className={`px-4 py-2 rounded-xl text-sm font-medium ${t.textSec} ${t.hover} transition-colors cursor-pointer`}>{al.cancel}</button>
@@ -894,6 +933,43 @@ const AdminView = ({ onLogout, currentUser }) => {
             {/* ═══ Kiosk MA Tab ═══ */}
             {kioskTab === 'ma' && (
               <div className="space-y-6">
+                {/* Station Selector */}
+                {currentUser?.role === 'Super Admin' ? (
+                  <div className={`${t.card} rounded-2xl border p-4`}>
+                    <label className={`text-xs font-bold ${t.textSec} uppercase mb-3 block flex items-center gap-2`}><MapPin size={14}/> {al.stationSelector}</label>
+                    <div className="flex flex-wrap gap-2">
+                      <button onClick={() => setSelectedStation('all')}
+                        className={`px-4 py-2 rounded-xl text-sm font-bold transition-all cursor-pointer border btn-press ${
+                          selectedStation === 'all'
+                            ? (dk ? 'border-cyan-600 bg-cyan-950/30 text-cyan-400' : 'border-cyan-400 bg-cyan-50 text-cyan-700')
+                            : `${t.border} ${t.textSec} ${t.hover}`
+                        }`}>
+                        <span className="flex items-center gap-1.5"><Globe size={14}/> {al.allStationsBtn}</span>
+                      </button>
+                      {STATIONS.map(s => (
+                        <button key={s.id} onClick={() => setSelectedStation(s.id)}
+                          className={`px-4 py-2 rounded-xl text-sm font-bold transition-all cursor-pointer border btn-press ${
+                            selectedStation === s.id
+                              ? (dk ? 'border-cyan-600 bg-cyan-950/30 text-cyan-400' : 'border-cyan-400 bg-cyan-50 text-cyan-700')
+                              : `${t.border} ${t.textSec} ${t.hover}`
+                          }`}>
+                          {s.name[adminLang]}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className={`${t.card} rounded-2xl border p-4`}>
+                    <div className="flex items-center gap-3">
+                      <Lock size={16} className={t.textSec}/>
+                      <span className={`text-xs font-bold ${t.textSec} uppercase`}>{al.yourStationLabel}:</span>
+                      <span className={`px-4 py-2 rounded-xl text-sm font-bold border ${dk ? 'border-cyan-600 bg-cyan-950/30 text-cyan-400' : 'border-cyan-400 bg-cyan-50 text-cyan-700'}`}>
+                        {STATIONS.find(s => s.id === currentUser?.station)?.name[adminLang] || currentUser?.station}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-3 gap-4">
                   <Stat icon={Monitor} label={al.kiosksOnline} value={`${visibleKiosks.filter(k=>k.status==='online').length}/${visibleKiosks.length}`} color="bg-emerald-50 text-emerald-600"/>
                   <Stat icon={Activity} label={al.avgUptime} value={`${(visibleKiosks.filter(k=>k.status==='online').reduce((s,k)=>s+parseFloat(k.uptime),0)/Math.max(1,visibleKiosks.filter(k=>k.status==='online').length)).toFixed(1)}%`} color="bg-blue-50 text-blue-600"/>
